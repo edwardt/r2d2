@@ -8,8 +8,7 @@ import akka.actor._
 import akka.util.Timeout
 import org.joda.time.{ DateTime, Duration ⇒ JodaTimeDuration }
 
-import scala.collection.mutable.{ Queue ⇒ MutableQueue }
-import scala.collection.mutable.{ HashMap ⇒ MutableHashMap }
+import scala.collection.mutable.{ Queue ⇒ MutableQueue, HashMap ⇒ MutableHashMap }
 import scala.concurrent.duration.Duration
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.{ Failure, Success }
