@@ -17,4 +17,14 @@ project/plugins/project/
 .worksheet
 
 # Sublime specific
+sublime.sbt
+*.sublime
 *.sublime-project
+*.sublime-workspace
+
+# IDEA IntelliJ
+.idea/*
+.idea_modules/*
+
+# OSX
+.DS_Store
