@@ -7,8 +7,10 @@ import java.util.concurrent.TimeUnit
 import akka.actor._
 import akka.pattern.AskSupport
 import akka.util.Timeout
-import org.joda.time.{ DateTimeZone, DateTime }
+import org.joda.time.{ DateTimeZone, DateTime, Duration ⇒ JodaTimeDuration }
 
+import scala.collection.mutable.{ Queue ⇒ MutableQueue }
+import scala.collection.mutable.{ HashMap ⇒ MutableHashMap }
 import scala.concurrent.duration.Duration
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.{ Failure, Success }
@@ -23,9 +25,9 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
   private[this] implicit val timeout = Timeout.durationToTimeout(Duration(10, TimeUnit.SECONDS))
   private[this] val actor = ActorSystem.create().actorOf(Props(new ConnectionPoolImpl(config)), actorName)
 
-  val availableConnections = scala.collection.mutable.Queue[ConnectionMetadata]()
-  val usedConnections = scala.collection.mutable.HashMap[Connection, ConnectionMetadata]()
-  val connectionRequests = scala.collection.mutable.Queue[ConnectionRequest]()
+  val availableConnections = MutableQueue[ConnectionMetadata]()
+  val usedConnections = MutableHashMap[Connection, ConnectionMetadata]()
+  val connectionRequests = MutableQueue[ConnectionRequest]()
 
   def totalConnections = availableConnections.size + usedConnections.size
 
@@ -78,8 +80,8 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
       props.put("password", config.password)
 
       DriverManager.getConnection(config.connectionString, props)
+      // TODO: Allow for post configuration like addDataType
 
-      //      TODO: Allow for post configuration like addDataType
     })(blockingExecutionContext).onComplete {
       case Success(db) ⇒ self ! CreatedConnection(ConnectionMetadata(db, gimmeNow, gimmeNow))
       case Failure(t)  ⇒ self ! FailedCreatingConnection(t)
@@ -124,19 +126,18 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
     expiredConnections.foreach(metadata ⇒ closeConnection(metadata.connection))
 
     val timedOutConnectionRequests = connectionRequests.dequeueAll { r ⇒
-      val d = new org.joda.time.Duration(r.created, now)
-      d.getMillis > config.connectionRequestTimeout
+      new JodaTimeDuration(r.created, now).getMillis > config.connectionRequestTimeout
     }
 
     if (timedOutConnectionRequests.nonEmpty) {
-      val e = new ConnectionRequestTimeoutException(config.connectionRequestTimeout)
-      timedOutConnectionRequests.foreach(_.ref ! Status.Failure(e))
+      timedOutConnectionRequests.foreach(_.ref ! Status.Failure(
+        new ConnectionRequestTimeoutException(config.connectionRequestTimeout)))
     }
   }
 
   private[this] def isConnectionExpired(metadata: ConnectionMetadata, now: DateTime = gimmeNow): Boolean = {
-    val createdInterval = new org.joda.time.Duration(metadata.created, now)
-    val idleInterval = new org.joda.time.Duration(metadata.lastCheckout, now)
+    val createdInterval = new JodaTimeDuration(metadata.created, now)
+    val idleInterval = new JodaTimeDuration(metadata.lastCheckout, now)
     (createdInterval.getMillis > config.maxConnectionAge) || (idleInterval.getMillis > config.maxConnectionIdleTime)
   }
 
