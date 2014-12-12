@@ -1,8 +1,14 @@
+import com.typesafe.sbt.SbtScalariform._
+import scalariform.formatter.preferences._
+
 name := "r2d2"
 
 version := "1.0"
 
 scalaVersion := "2.11.4"
+
+//External repositories
+resolvers ++= Seq("Typesafe Repository"             at "http://repo.typesafe.com/typesafe/releases/")
 
 libraryDependencies ++= {
   val akkaVersion = "2.3.7"
@@ -15,3 +21,14 @@ libraryDependencies ++= {
     "org.specs2" %% "specs2" % "2.3.13" % "test"
   )
 }
+
+//Sourcecode formatting
+scalariformSettings
+
+ScalariformKeys.preferences := ScalariformKeys.preferences.value
+  .setPreference(AlignSingleLineCaseStatements, true)
+  .setPreference(PreserveDanglingCloseParenthesis, true)
+  .setPreference(RewriteArrowSymbols, true)
+  .setPreference(AlignParameters, true)
+  .setPreference(DoubleIndentClassDeclaration, true)
+  .setPreference(AlignSingleLineCaseStatements.MaxArrowIndent, 90)
