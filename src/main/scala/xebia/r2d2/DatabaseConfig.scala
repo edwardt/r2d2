@@ -1,28 +1,28 @@
-package com.plotprojects.dao.postgresql
+package xebia.r2d2
+
+import java.util.concurrent.TimeUnit
 
 import com.typesafe.config.Config
 
-case class DatabaseConfig(host: String,
-                          databaseName: String,
+case class DatabaseConfig(connectionString: String,
                           username: String,
                           password: String,
                           poolSize: Int,
                           maxConnectionAge: Long,
                           maxConnectionIdleTime: Long,
-                          maxConnectionCheckoutTime: Long,
+                          connectionRequestTimeout: Long,
                           maxPendingConnections: Int)
 
 object DatabaseConfig {
   def getConfig(config: Config) = {
     DatabaseConfig(
-      host = config.getString("plot.db.postgresql.host"),
-      databaseName = config.getString("plot.db.postgresql.database"),
+      connectionString = config.getString("plot.db.connectionString"),
       username = config.getString("plot.db.postgresql.username"),
       password = config.getString("plot.db.postgresql.password"),
       poolSize = config.getInt("plot.db.postgresql.poolSize"),
-      maxConnectionAge = config.getMilliseconds("plot.db.postgresql.maxConnectionAge"),
-      maxConnectionIdleTime = config.getMilliseconds("plot.db.postgresql.maxConnectionIdleTime"),
-      maxConnectionCheckoutTime = config.getMilliseconds("plot.db.postgresql.maxConnectionCheckoutTime"),
+      maxConnectionAge = config.getDuration("plot.db.postgresql.maxConnectionAge", TimeUnit.MILLISECONDS),
+      maxConnectionIdleTime = config.getDuration("plot.db.postgresql.maxConnectionIdleTime", TimeUnit.MILLISECONDS),
+      connectionRequestTimeout = config.getDuration("plot.db.postgresql.maxConnectionCheckoutTime", TimeUnit.MILLISECONDS),
       maxPendingConnections = config.getInt("plot.db.postgresql.maxPendingConnections"))
   }
 }
