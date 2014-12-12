@@ -5,9 +5,8 @@ import java.util.Properties
 import java.util.concurrent.TimeUnit
 
 import akka.actor._
-import akka.pattern.AskSupport
 import akka.util.Timeout
-import org.joda.time.{ DateTimeZone, DateTime, Duration ⇒ JodaTimeDuration }
+import org.joda.time.{ DateTime, Duration ⇒ JodaTimeDuration }
 
 import scala.collection.mutable.{ Queue ⇒ MutableQueue }
 import scala.collection.mutable.{ HashMap ⇒ MutableHashMap }
@@ -16,14 +15,30 @@ import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.{ Failure, Success }
 import scala.concurrent.duration._
 
-class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) extends ConnectionPool with Actor with AskSupport with ActorLogging {
+object ConnectionPoolActor {
+
+  def props = Props[ConnectionPoolActor]
+
+  private[r2d2] case class ConnectionMetadata(connection: Connection, created: DateTime, lastCheckout: DateTime)
+  private[r2d2] case class ConnectionRequest(ref: ActorRef, created: DateTime)
+
+  private case object RequestConnection
+  private case class ReturnConnection(connection: Connection)
+  private case class CreatedConnection(metadata: ConnectionMetadata)
+  private case class FailedCreatingConnection(t: Throwable)
+  private case object TestConnections
+}
+
+trait ConnectionPoolActor extends Actor with ActorSystemContextSupport with ActorAskSupport with ActorLogging {
+
+  import ConnectionPoolActor._
 
   // TODO: Move out!
-  def actorName = "Freddy"
-  def gimmeNow: DateTime = DateTime.now(DateTimeZone.UTC)
-  def blockingExecutionContext: ExecutionContext = ???
+  def config: DatabaseConfig
+  def now: DateTime
+  def blockingExecutionContext: ExecutionContext
+  def actorSystem: ActorSystem
   private[this] implicit val timeout = Timeout.durationToTimeout(Duration(10, TimeUnit.SECONDS))
-  private[this] val actor = ActorSystem.create().actorOf(Props(new ConnectionPoolImpl(config)), actorName)
 
   val availableConnections = MutableQueue[ConnectionMetadata]()
   val usedConnections = MutableHashMap[Connection, ConnectionMetadata]()
@@ -31,21 +46,19 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
 
   def totalConnections = availableConnections.size + usedConnections.size
 
+  import akka.pattern.ask
   private[this] def getConnection: Future[Connection] = self.ask(RequestConnection).mapTo[Connection]
   private[this] def returnConnection(connection: Connection): Unit = self ! ReturnConnection(connection)
 
   // Interface
-  override def withConnection[T](block: (Connection) ⇒ Future[T]): Future[T] = {
+  def withConnection[T](block: (Connection) ⇒ Future[T]): Future[T] = {
     getConnection.flatMap { connection: Connection ⇒
       block(connection).andThen { case _ ⇒ returnConnection(connection) }
     }
   }
 
-  case class ConnectionMetadata(connection: Connection, created: DateTime, lastCheckout: DateTime)
-  case class ConnectionRequest(ref: ActorRef, created: DateTime)
-
   override def receive: Receive = {
-    case RequestConnection    ⇒ requestConnection(sender)
+    case RequestConnection    ⇒ requestConnection(sender())
     case ReturnConnection(db) ⇒ returnConnection(db)
     case CreatedConnection(metadata) ⇒
       availableConnections.enqueue(metadata)
@@ -62,7 +75,7 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
     if (connectionRequests.size >= config.maxPendingConnections) {
       sender ! Status.Failure(new MaxConnectionRequestsExceededException(config.maxPendingConnections))
     } else {
-      connectionRequests.enqueue(ConnectionRequest(sender, gimmeNow))
+      connectionRequests.enqueue(ConnectionRequest(sender, now))
       if (availableConnections.isEmpty) {
         if (totalConnections < config.poolSize) {
           createNewConnection()
@@ -83,7 +96,7 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
       // TODO: Allow for post configuration like addDataType
 
     })(blockingExecutionContext).onComplete {
-      case Success(db) ⇒ self ! CreatedConnection(ConnectionMetadata(db, gimmeNow, gimmeNow))
+      case Success(db) ⇒ self ! CreatedConnection(ConnectionMetadata(db, now, now))
       case Failure(t)  ⇒ self ! FailedCreatingConnection(t)
     }
   }
@@ -121,12 +134,12 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
   }
 
   private[this] def testConnections(): Unit = {
-    val now = gimmeNow
-    val expiredConnections = availableConnections.dequeueAll(metadata ⇒ isConnectionExpired(metadata, now))
+    val snow = now
+    val expiredConnections = availableConnections.dequeueAll(metadata ⇒ isConnectionExpired(metadata, snow))
     expiredConnections.foreach(metadata ⇒ closeConnection(metadata.connection))
 
     val timedOutConnectionRequests = connectionRequests.dequeueAll { r ⇒
-      new JodaTimeDuration(r.created, now).getMillis > config.connectionRequestTimeout
+      new JodaTimeDuration(r.created, snow).getMillis > config.connectionRequestTimeout
     }
 
     if (timedOutConnectionRequests.nonEmpty) {
@@ -135,17 +148,11 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
     }
   }
 
-  private[this] def isConnectionExpired(metadata: ConnectionMetadata, now: DateTime = gimmeNow): Boolean = {
+  private[this] def isConnectionExpired(metadata: ConnectionMetadata, now: DateTime = now): Boolean = {
     val createdInterval = new JodaTimeDuration(metadata.created, now)
     val idleInterval = new JodaTimeDuration(metadata.lastCheckout, now)
     (createdInterval.getMillis > config.maxConnectionAge) || (idleInterval.getMillis > config.maxConnectionIdleTime)
   }
-
-  private[this] case class RequestConnection()
-  private[this] case class ReturnConnection(connection: Connection)
-  private[this] case class CreatedConnection(metadata: ConnectionMetadata)
-  private[this] case class FailedCreatingConnection(t: Throwable)
-  private[this] case object TestConnections
 
   class ConnectionRequestException(message: String, cause: Throwable) extends Exception(message, cause) {
     def this(message: String) = {
@@ -156,5 +163,4 @@ class ConnectionPoolImpl(config: DatabaseConfig)(implicit ec: ExecutionContext) 
     extends ConnectionRequestException(s"Connection request timed out, took longer than ${period}ms.")
   class MaxConnectionRequestsExceededException(max: Int)
     extends ConnectionRequestException(s"Max number outstanding requests has been exceeded. Max is $max.")
-
 }
