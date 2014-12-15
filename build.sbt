@@ -14,12 +14,13 @@ libraryDependencies ++= {
   val akkaVersion = "2.3.7"
   val sprayVersion = "1.3.2"
   Seq(
-    "com.typesafe.akka" %% "akka-actor" % akkaVersion,
-    "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
-    "joda-time" % "joda-time" % "2.0",
-    "org.joda" % "joda-convert" % "1.2",
+    "com.typesafe.akka" %% "akka-actor"   % akkaVersion,
+    "com.typesafe.akka" %% "akka-slf4j"   % akkaVersion,
+    "com.typesafe.akka" %% "akka-testkit" % akkaVersion,
+    "joda-time"         %  "joda-time"    % "2.0",
+    "org.joda"          % "joda-convert"  % "1.2",
     // Test dependencies
-    "org.specs2" %% "specs2" % "2.3.13" % "test"
+    "org.specs2"        %% "specs2"       % "2.3.13"      % "test"
   )
 }
 
