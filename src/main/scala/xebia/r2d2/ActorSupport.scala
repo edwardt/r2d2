@@ -37,6 +37,5 @@ trait ActorSystemContextSupport extends ExecutionContextSupport {
 
 //======================= AskSupport=========================
 trait ActorAskSupport {
-  import akka.pattern.ask
   implicit val AskTimeout = Timeout(5 seconds)
 }
